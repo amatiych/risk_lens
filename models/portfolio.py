@@ -29,7 +29,7 @@ if __name__ == "__main__":
     print(all_portfolios)
 
     print("-----------------------------------------")
-    portfolio = Portfolio.load(101)
+    portfolio = Portfolio.load(102)
     from enrichment.price_enricher import YahooFinancePriceEnricher
     from enrichment.time_series_enricher import YahooTimeSeriesEnricher
 
@@ -41,6 +41,7 @@ if __name__ == "__main__":
 
     print("-----------------------------------------")
     print(portfolio.time_series)
+    portfolio.time_series.to_csv("data/time_series.csv")
 
     print("------------------------------------------")
     print("TICKERS")

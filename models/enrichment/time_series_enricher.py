@@ -16,8 +16,8 @@ class YahooTimeSeriesEnricher(TimeSeriesEnricher):
     def enrich_portfolio(self,portfolio:Portfolio) -> DataFrame:
         tickers = list(portfolio.holdings.index.values)
         data = yf.download(tickers, period='12mo')['Close']
-        data = data.pct_change(1).dropna()
-
+        #data = data.pct_change(1).dropna()
+        #data.set_index("Date", inplace=True)
         portfolio.time_series = data
 
 

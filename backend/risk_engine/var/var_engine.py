@@ -2,7 +2,7 @@ from pandas import read_parquet
 import numpy as np
 import json
 from core.timer import timed
-from numba import jit
+from numba import njit
 """
     Simplified Version of VaR Engine.
     It calculates the following measures:
@@ -30,7 +30,7 @@ class VaR:
     def to_json(self):
         return json.dumps(self.__dict__)
 
-@jit(nopython=True)
+#@njit()
 def calc_var_core(P, cis):
     """
     P   : 1D array (T,)
@@ -83,7 +83,7 @@ def calc_marginal_var_batch(P, C, k):
     for i in range(N):
         P_wo = P - C[:, i]
         kth_val = np.partition(P_wo, k)[k]
-        var_wo[i] = -kth_val
+        var_wo[i] = kth_val
     
     return var_wo
 

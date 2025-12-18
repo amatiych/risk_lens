@@ -25,9 +25,11 @@ class YahooFinancePriceEnricher(PriceEnricher):
     def get_prices(self, tickers):
 
         data = yf.download(tickers, period='1d')
-        close = data['Close'].reset_index()
+        data.fillna(method='ffill', inplace=True)
+
+        close = data['Close'].sum()
         res = {}
         for ticker in tickers:
-            res[ticker] = close.loc[0,ticker]
+            res[ticker] = close[ticker]
         return res
 
