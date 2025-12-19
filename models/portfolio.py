@@ -5,6 +5,7 @@ from dataclasses import dataclass
 class Portfolio:
     portfolio_id: int
     name: str
+    nav: float
     holdings: DataFrame
 
     @classmethod
@@ -16,9 +17,14 @@ class Portfolio:
         meta = read_csv("data/portfolios.csv").set_index("portfolio_id")
         row = meta.loc[portfolio_id]
         holdings = read_csv(f"data/holdings/port_{portfolio_id}.csv").set_index('ticker')
+
+        if "Unnamed: 0" in holdings.columns:
+            holdings = holdings.drop(columns="Unnamed: 0")
+
         return cls(
             portfolio_id=portfolio_id,
             name=row["name"],
+            nav=row["nav"],
             holdings=holdings
         )
 
@@ -29,7 +35,7 @@ if __name__ == "__main__":
     print(all_portfolios)
 
     print("-----------------------------------------")
-    portfolio = Portfolio.load(102)
+    portfolio = Portfolio.load(100)
     from enrichment.price_enricher import YahooFinancePriceEnricher
     from enrichment.time_series_enricher import YahooTimeSeriesEnricher
 

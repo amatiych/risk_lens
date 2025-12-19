@@ -2,7 +2,6 @@ from pandas import read_parquet
 import numpy as np
 import json
 from core.timer import timed
-from numba import njit
 """
     Simplified Version of VaR Engine.
     It calculates the following measures:
@@ -14,14 +13,15 @@ from numba import njit
 """
 class VaR:
 
-    def __init__(self,*, ci, var, k, es,idx,
+    def __init__(self,*, ci, var, k,var_date, es,idx,
                  marginal_var=[], incremental_var=[]):
         self.ci = float(ci)
         self.var = float(var)
         self.es = float(es)
         self.var_index = int(k)
+        self.var_date = var_date
         self.tail_indexes = list(idx)
-        self.marginal_var = marginal_var,
+        self.marginal_var = marginal_var
         self.incremental_var = incremental_var
 
     def __repr__(self):
@@ -79,11 +79,11 @@ def calc_marginal_var_batch(P, C, k):
     T, N = C.shape
     var_wo = np.empty(N, dtype=np.float64)
     
-    # Process each asset separately - numba-friendly approach
-    for i in range(N):
-        P_wo = P - C[:, i]
-        kth_val = np.partition(P_wo, k)[k]
-        var_wo[i] = kth_val
+    # # Process each asset separately - numba-friendly approach
+    # for i in range(N):
+    #     P_wo = P - C[:, i]
+    #     kth_val = np.partition(P_wo, k)[k]
+    #     var_wo[i] = kth_val
     
     return var_wo
 
@@ -97,6 +97,7 @@ class VarEngine:
         # Pre-compute component contributions (R * W) - doesn't change unless weights change
         # This is a major optimization - C is reused across all calc_var calls
         self._C = (self.R * self.W).astype(np.float64)
+        self.CR = self.df_returns.corr()
 
     def calc_proforma(self):
         return self.R @ self.W
@@ -122,11 +123,10 @@ class VarEngine:
             
             var = -1 * float(vars_[i])
             var_idx = int(idx[k])
-            
-            # OPTIMIZATION 2: Numba-accelerated marginal VaR calculation
-            # Uses numba-optimized loop instead of numpy broadcasting + partition
-            # This is faster for large numbers of assets
-            var_wo = calc_marginal_var_batch(P, C, k)  # (N,)
+
+            P_wo = P[:, None] - self.R * self.W
+            var_wo = np.partition(P_wo, k, axis=0)[k, :]  # (N,)
+            #var_wo = kth_vals  # VaR without each name
             mar_var = var - var_wo  # (N,)
             inc_var = C[var_idx, :]
 
@@ -135,6 +135,7 @@ class VarEngine:
                     ci = float(ci),
                     var = var,
                     k = var_idx,
+                    var_date = self.df_time_series.index[k],
                     es = float(es),
                     idx = [int(j) for j in idx[:k]],
                     marginal_var = [float(mv) for mv in mar_var],

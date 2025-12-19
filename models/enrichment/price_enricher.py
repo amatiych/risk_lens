@@ -16,7 +16,11 @@ class PriceEnricher(ABC):
         for ticker in tickers:
             portfolio.holdings.loc[ticker,'price'] = prices[ticker]
         portfolio.holdings['market_value'] =  portfolio.holdings['price'] * portfolio.holdings['shares']
-        tot_mv = portfolio.holdings['market_value'].sum()
+
+        if portfolio.nav == 1:
+            tot_mv = portfolio.holdings['market_value'].sum()
+        else:
+            tot_mv = portfolio.nav
         portfolio.holdings['weight'] = portfolio.holdings['market_value'] / tot_mv
 
 

@@ -1,4 +1,21 @@
-portfolio_id,name,description,ccy
-101,tech portfolio,sample tech portfolio - long only,USD
-103,long /short,sample long / short portfolio,USD
-102,crypto portfolio,crypto currency and stocks,USD
+portfolio_id,name,description,ccy,nav
+101,portfolio_101,Sample random portfolio,USD,350000
+102,portfolio_102,Sample random portfolio,USD,150000
+103,portfolio_103,Sample random portfolio,USD,300000
+104,portfolio_104,Sample random portfolio,USD,900000
+105,portfolio_105,Sample random portfolio,USD,1
+106,portfolio_106,Sample random portfolio,USD,1
+107,portfolio_107,Sample random portfolio,USD,1
+108,portfolio_108,Sample random portfolio,USD,1
+109,portfolio_109,Sample random portfolio,USD,1
+110,portfolio_110,Sample random portfolio,USD,1
+111,portfolio_111,Sample random portfolio,USD,1
+112,portfolio_112,Sample random portfolio,USD,1
+113,portfolio_113,Sample random portfolio,USD,1
+114,portfolio_114,Sample random portfolio,USD,1
+115,portfolio_115,Sample random portfolio,USD,1
+116,portfolio_116,Sample random portfolio,USD,1
+117,portfolio_117,Sample random portfolio,USD,1
+118,portfolio_118,Sample random portfolio,USD,1
+119,portfolio_119,Sample random portfolio,USD,1
+100,two asset portfolio,TSLA and BTC,USD,200000
