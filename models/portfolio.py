@@ -1,12 +1,14 @@
 from pandas import DataFrame, read_csv
 from dataclasses import dataclass
-
+from typing import Optional,List
 @dataclass
 class Portfolio:
     portfolio_id: int
     name: str
     nav: float
     holdings: DataFrame
+    W: Optional[List[float]] = None
+    time_series: Optional[DataFrame] = None
 
     @classmethod
     def get_portfolios(self)->DataFrame:

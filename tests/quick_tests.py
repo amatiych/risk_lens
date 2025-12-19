@@ -4,9 +4,7 @@ from models.enrichment.price_enricher import YahooFinancePriceEnricher
 from backend.llm.var_analyzer import VaRAnalyzer
 if __name__ == "__main__":
 
-    print("-----------------------------------------")
-    all_portfolios = Portfolio.get_portfolios()
-    print(all_portfolios)
+
 
     print("-----------------------------------------")
     portfolio = Portfolio.load(104)

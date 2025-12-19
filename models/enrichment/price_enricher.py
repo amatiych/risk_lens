@@ -22,6 +22,7 @@ class PriceEnricher(ABC):
         else:
             tot_mv = portfolio.nav
         portfolio.holdings['weight'] = portfolio.holdings['market_value'] / tot_mv
+        portfolio.W =  portfolio.holdings['weight'].values
 
 
 class YahooFinancePriceEnricher(PriceEnricher):

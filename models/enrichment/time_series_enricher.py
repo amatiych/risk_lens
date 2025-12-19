@@ -21,3 +21,4 @@ class YahooTimeSeriesEnricher(TimeSeriesEnricher):
         portfolio.time_series = data
 
 
+
