@@ -1,0 +1,4 @@
+regime,name,description
+0,Value Recovery,"Market stress regime with negative equity returns but strong value, quality, and small-cap outperformance. Characterized by style rotation away from growth toward defensive factors."
+1,Bear Market Transition,Severe market decline regime with negative equity returns but strong performance in conservative investment factors. Flight to quality and value strategies dominate.
+2,Growth Bull Market,"Strong equity bull market regime with positive market returns but underperformance of value, small-cap, and conservative factors. Growth and large-cap momentum dominate."
