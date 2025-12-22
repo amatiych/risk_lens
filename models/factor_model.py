@@ -8,8 +8,8 @@ class FactorModel:
     factors: DataFrame
 
     @classmethod
-    def load(cls,model_name):
-        factors = read_csv(f'data/models/{model_name}.csv').set_index('Date')
+    def load(cls,model_name) -> 'FactorModel':
+        factors = read_csv(f'data/factor_models/{model_name}.csv').set_index('Date')
         return FactorModel(model_name=model_name,factors=factors)
 
 if __name__ == '__main__':
