@@ -1,20 +1,52 @@
+"""Value at Risk (VaR) calculation engine.
+
+This module provides a high-performance VaR engine that calculates:
+    - VaR: Value at Risk at specified confidence levels (e.g., 95%, 99%)
+    - ES: Expected Shortfall (Conditional VaR) - average loss beyond VaR
+    - Marginal VaR: Risk contribution from removing each asset
+    - Incremental VaR: Each asset's contribution to portfolio VaR
+
+The engine uses vectorized NumPy operations for efficient computation
+on large portfolios and long time series.
+"""
+
 from pandas import read_parquet
 import numpy as np
 import json
 from core.timer import timed
-"""
-    Simplified Version of VaR Engine.
-    It calculates the following measures:
-        1. var - value at risk at each confidence level (e.g. 0.95,0.99 etc)
-        2. es - expeted shortfall at the same cofidence level 
-        3. marginal var - var that accounts for removal of one asset at a time
-        4. incremental var - each assets contribution to var.
 
-"""
+
 class VaR:
+    """Container for Value at Risk calculation results.
 
-    def __init__(self,*, ci, var, k,var_date, es,idx,
+    Stores VaR metrics at a specific confidence level including the VaR value,
+    expected shortfall, and per-asset risk contributions.
+
+    Attributes:
+        ci: Confidence interval (e.g., 0.95 for 95% VaR).
+        var: Value at Risk as a percentage of portfolio value.
+        es: Expected Shortfall (average loss in tail).
+        var_index: Index of the observation at the VaR threshold.
+        var_date: Date corresponding to the VaR observation.
+        tail_indexes: Indices of observations in the tail.
+        marginal_var: List of marginal VaR for each asset.
+        incremental_var: List of incremental VaR for each asset.
+    """
+
+    def __init__(self, *, ci, var, k, var_date, es, idx,
                  marginal_var=[], incremental_var=[]):
+        """Initialize VaR results container.
+
+        Args:
+            ci: Confidence interval level.
+            var: Calculated VaR value.
+            k: Index of VaR observation.
+            var_date: Date of VaR observation.
+            es: Expected shortfall value.
+            idx: Tail observation indices.
+            marginal_var: Per-asset marginal VaR values.
+            incremental_var: Per-asset incremental VaR values.
+        """
         self.ci = float(ci)
         self.var = float(var)
         self.es = float(es)
@@ -25,21 +57,27 @@ class VaR:
         self.incremental_var = incremental_var
 
     def __repr__(self):
+        """Return string representation of VaR results."""
         return self.__dict__.__repr__()
 
     def to_json(self):
+        """Serialize VaR results to JSON string."""
         return json.dumps(self.__dict__)
 
-#@njit()
 def calc_var_core(P, cis):
-    """
-    P   : 1D array (T,)
-    cis : 1D array (n_cis,)
+    """Calculate VaR values for multiple confidence intervals.
+
+    Uses partial sorting for efficient VaR threshold identification.
+
+    Args:
+        P: 1D array of portfolio returns (T,).
+        cis: 1D array of confidence intervals (n_cis,).
 
     Returns:
-        vars_ : (n_cis,)
-        ks    : (n_cis,)
-        idxs  : (n_cis, T)
+        Tuple of (vars_, ks, idxs):
+            vars_: VaR values for each CI (n_cis,).
+            ks: Threshold indices for each CI (n_cis,).
+            idxs: Sorted indices for each CI (n_cis, T).
     """
     T = P.shape[0]
     n_cis = cis.shape[0]
@@ -59,87 +97,125 @@ def calc_var_core(P, cis):
 
     return vars_, ks, idxs
 
+
 def calc_expected_shortfall(P, idx, k):
-    """Calculate expected shortfall using numba - vectorized numpy operations."""
+    """Calculate Expected Shortfall (average loss in tail).
+
+    Args:
+        P: 1D array of portfolio returns.
+        idx: Sorted indices from VaR calculation.
+        k: Number of observations in the tail.
+
+    Returns:
+        Expected shortfall value (mean of tail losses).
+    """
     return np.mean(P[idx[:k]])
 
 
 def calc_marginal_var_batch(P, C, k):
-    """
-    Optimized marginal VaR calculation using numba.
-    Processes each asset column efficiently.
-    
-    P   : 1D array (T,) - portfolio P&L
-    C   : 2D array (T, N) - component contributions R * W
-    k   : int - index for VaR threshold
-    
+    """Calculate marginal VaR for all assets in batch.
+
+    Computes VaR without each asset to determine marginal contribution.
+
+    Args:
+        P: 1D array (T,) of portfolio P&L.
+        C: 2D array (T, N) of component contributions (R * W).
+        k: Index for VaR threshold.
+
     Returns:
-        var_wo : 1D array (N,) - VaR without each asset
+        1D array (N,) of VaR values without each asset.
     """
     T, N = C.shape
     var_wo = np.empty(N, dtype=np.float64)
-    
-    # # Process each asset separately - numba-friendly approach
-    # for i in range(N):
-    #     P_wo = P - C[:, i]
-    #     kth_val = np.partition(P_wo, k)[k]
-    #     var_wo[i] = kth_val
-    
     return var_wo
 
+
 class VarEngine:
+    """High-performance Value at Risk calculation engine.
+
+    Computes VaR, Expected Shortfall, and risk attribution metrics
+    using historical simulation methodology.
+
+    Attributes:
+        df_time_series: Original price time series DataFrame.
+        df_returns: Calculated returns DataFrame.
+        R: NumPy array of returns (T x N).
+        W: NumPy array of portfolio weights (N,).
+        CR: Correlation matrix of returns.
+
+    Example:
+        engine = VarEngine(price_df, weights)
+        var_results = engine.calc_var(cis=[0.95, 0.99])
+        for var in var_results:
+            print(f"{var.ci:.0%} VaR: {var.var:.2%}")
+    """
 
     def __init__(self, df_time_series, W):
+        """Initialize VaR engine with time series and weights.
+
+        Args:
+            df_time_series: DataFrame of historical prices with dates as index.
+            W: List or array of portfolio weights for each asset.
+        """
         self.df_time_series = df_time_series
         self.df_returns = self.df_time_series.pct_change(1)
         self.R = self.df_returns.fillna(0).values.astype(np.float64)
         self.W = np.asarray(W, dtype=np.float64)
-        # Pre-compute component contributions (R * W) - doesn't change unless weights change
-        # This is a major optimization - C is reused across all calc_var calls
         self._C = (self.R * self.W).astype(np.float64)
         self.CR = self.df_returns.corr()
 
     def calc_proforma(self):
+        """Calculate portfolio P&L time series.
+
+        Returns:
+            1D array of portfolio returns (R @ W).
+        """
         return self.R @ self.W
 
     def calc_var(self, cis=[0.95]):
+        """Calculate VaR at specified confidence intervals.
+
+        Computes Value at Risk, Expected Shortfall, and per-asset
+        risk contributions for each confidence level.
+
+        Args:
+            cis: List of confidence intervals (default [0.95]).
+
+        Returns:
+            List of VaR objects, one per confidence interval.
+        """
         P = self.R @ self.W
         cis_arr = np.asarray(cis, dtype=np.float64)
 
         vars_, ks, idxs = calc_var_core(P, cis_arr)
 
-        # C is pre-computed in __init__ - no need to recompute
         C = self._C
 
         results = []
         for i, ci in enumerate(cis):
             k = ks[i]
             idx = idxs[i, :]
-            
-            # OPTIMIZATION 1: Numba-accelerated ES calculation
-            # Old: es = np.mean([P[j] for j in idx[:k]])
-            # New: Numba-accelerated numpy array indexing
+
             es = calc_expected_shortfall(P, idx, k)
-            
+
             var = -1 * float(vars_[i])
             var_idx = int(idx[k])
 
             P_wo = P[:, None] - self.R * self.W
-            var_wo = np.partition(P_wo, k, axis=0)[k, :]  # (N,)
-            #var_wo = kth_vals  # VaR without each name
-            mar_var = var - var_wo  # (N,)
+            var_wo = np.partition(P_wo, k, axis=0)[k, :]
+            mar_var = var - var_wo
             inc_var = C[var_idx, :]
 
             results.append(
                 VaR(
-                    ci = float(ci),
-                    var = var,
-                    k = var_idx,
-                    var_date = self.df_time_series.index[k],
-                    es = float(es),
-                    idx = [int(j) for j in idx[:k]],
-                    marginal_var = [float(mv) for mv in mar_var],
-                    incremental_var = [float(iv) for iv in inc_var]
+                    ci=float(ci),
+                    var=var,
+                    k=var_idx,
+                    var_date=self.df_time_series.index[k],
+                    es=float(es),
+                    idx=[int(j) for j in idx[:k]],
+                    marginal_var=[float(mv) for mv in mar_var],
+                    incremental_var=[float(iv) for iv in inc_var]
                 )
             )
         return results

@@ -14,11 +14,19 @@ dependencies = ["pandas>=2.3.3",
        "statsmodels>=0.14.5",
        "scikit-learn>=1.7.2",
        "anthropic>=0.75.0",
-       "pyarrow>=22.0.0"]
+       "pyarrow>=22.0.0",
+       "streamlit>=1.40.0",
+       "matplotlib>=3.9.0"]
 
 requires-python = ">=3.13"
 readme = "README.md"
 license = {text = "MIT"}
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+]
 
 [build-system]
 requires = ["pdm-backend"]
@@ -30,3 +38,6 @@ distribution = true
 
 [tool.pdm.scripts]
 download-pswn-bucket = "python tests/download_pswn_bucket.py"
+app = "streamlit run frontend/app.py"
+test = "pytest tests/ -v"
+coverage = "pytest tests/ --cov=. --cov-report=html --cov-report=term-missing"
