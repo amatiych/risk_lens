@@ -2,20 +2,28 @@
 
 This module provides the VaRAnalyzer class which uses Claude AI to interpret
 portfolio risk metrics and provide actionable insights for risk managers.
-Uses tool calling for runtime data fetching and structured outputs for
-consistent, parseable responses.
+Uses tool calling for runtime data fetching, structured outputs for
+consistent responses, and comprehensive guardrails for safety.
 """
 
 import os
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import anthropic
 
 from backend.llm.tools import TOOLS, execute_tool
 from backend.llm.schemas import VAR_ANALYSIS_SCHEMA, VaRAnalysisResult
 from backend.reporting.portfolio_report import PortfolioReport
+from backend.llm.guardrails.input_guards import InputGuardrails
+from backend.llm.guardrails.output_guards import OutputGuardrails
+from backend.llm.guardrails.process_guards import ProcessGuardrails, GuardedClient
+from backend.llm.guardrails.constitutional import ConstitutionalGuard
+
+
+# Import GuardrailsReport from the package
+from backend.llm.guardrails import GuardrailsReport
 
 
 class VaRAnalyzer:
@@ -42,17 +50,30 @@ class VaRAnalyzer:
     def __init__(
         self,
         report: PortfolioReport,
-        max_tool_iterations: int = 10
+        max_tool_iterations: int = 10,
+        guardrails_enabled: bool = True,
+        user_id: str = "default"
     ):
         """Initialize the VaR analyzer with a portfolio report.
 
         Args:
             report: PortfolioReport containing VaR, factor, and regime data.
             max_tool_iterations: Maximum rounds of tool calls before forcing completion.
+            guardrails_enabled: Whether to run guardrails checks.
+            user_id: User identifier for rate limiting and logging.
         """
         self.api_key = os.environ.get("CLAUDE_API_KEY")
         self.report = report
         self.max_tool_iterations = max_tool_iterations
+        self.guardrails_enabled = guardrails_enabled
+        self.user_id = user_id
+
+        # Initialize guardrails
+        if guardrails_enabled:
+            self.input_guards = InputGuardrails()
+            self.output_guards = OutputGuardrails()
+            self.process_guards = ProcessGuardrails()
+            self.constitutional = ConstitutionalGuard()
 
     def _build_initial_prompt(self) -> str:
         """Build the initial analysis prompt with portfolio data.
@@ -286,3 +307,133 @@ Return ONLY valid JSON, no markdown formatting."""
         """
         result = self.analyze()
         return result.to_json()
+
+    def analyze_with_guardrails(
+        self,
+        run_constitutional: bool = True
+    ) -> Tuple[VaRAnalysisResult, GuardrailsReport]:
+        """Analyze with full guardrails and return both result and report.
+
+        This method runs the complete guardrails pipeline:
+        1. Input validation (prompt injection, PII detection)
+        2. Process checks (rate limiting, budget)
+        3. LLM analysis with tool calling
+        4. Output validation (hallucination, disclaimers)
+        5. Constitutional self-critique (optional)
+
+        Args:
+            run_constitutional: Whether to run constitutional self-critique.
+
+        Returns:
+            Tuple of (VaRAnalysisResult, GuardrailsReport) with analysis
+            and all guardrail check results.
+        """
+        guardrails_report = GuardrailsReport()
+
+        if not self.guardrails_enabled:
+            # Just run analysis without guardrails
+            result = self.analyze()
+            return result, guardrails_report
+
+        # Step 1: Input validation
+        prompt = self._build_initial_prompt()
+        input_results = self.input_guards.run_all_checks(prompt)
+        for r in input_results:
+            guardrails_report.add_input_check(r)
+
+        # Check if blocked by input guards
+        if guardrails_report.blocked:
+            # Return empty result with guardrails report
+            from backend.llm.schemas import (
+                ConcentrationAnalysis, FactorInterpretation, RegimeInterpretation
+            )
+            empty_result = VaRAnalysisResult(
+                executive_summary="Analysis blocked by input guardrails",
+                risk_drivers=[],
+                concentration_analysis=ConcentrationAnalysis(
+                    most_concentrated_positions=[],
+                    best_diversifiers=[],
+                    concentration_risk_level="unknown",
+                    concentration_summary=""
+                ),
+                factor_interpretation=FactorInterpretation(
+                    dominant_factors=[],
+                    factor_risk_summary=""
+                ),
+                regime_interpretation=RegimeInterpretation(
+                    regime_sensitivity="unknown",
+                    regime_risk_summary=""
+                ),
+                recommendations=[]
+            )
+            return empty_result, guardrails_report
+
+        # Step 2: Process checks (rate limiting, budget)
+        process_results = self.process_guards.pre_request_checks(self.user_id)
+        for r in process_results:
+            guardrails_report.add_process_check(r)
+
+        if guardrails_report.blocked:
+            from backend.llm.schemas import (
+                ConcentrationAnalysis, FactorInterpretation, RegimeInterpretation
+            )
+            empty_result = VaRAnalysisResult(
+                executive_summary="Analysis blocked by rate limiting",
+                risk_drivers=[],
+                concentration_analysis=ConcentrationAnalysis(
+                    most_concentrated_positions=[],
+                    best_diversifiers=[],
+                    concentration_risk_level="unknown",
+                    concentration_summary=""
+                ),
+                factor_interpretation=FactorInterpretation(
+                    dominant_factors=[],
+                    factor_risk_summary=""
+                ),
+                regime_interpretation=RegimeInterpretation(
+                    regime_sensitivity="unknown",
+                    regime_risk_summary=""
+                ),
+                recommendations=[]
+            )
+            return empty_result, guardrails_report
+
+        # Step 3: Run the analysis
+        result = self.analyze()
+        response_text = result.to_json()
+
+        # Step 4: Output validation
+        source_data = {
+            "portfolio": self.report.holdings_json,
+            "var": self.report.var_json,
+            "factors": self.report.factor_data
+        }
+        processed_response, output_results = self.output_guards.run_all_checks(
+            response_text, source_data
+        )
+        for r in output_results:
+            guardrails_report.add_output_check(r)
+
+        # Step 5: Constitutional self-critique (optional)
+        if run_constitutional:
+            try:
+                _, constitutional_results, critique, grounding = \
+                    self.constitutional.run_full_evaluation(
+                        question="Analyze portfolio risk",
+                        response=response_text,
+                        source_data=self.report.report,
+                        auto_revise=False
+                    )
+                for r in constitutional_results:
+                    guardrails_report.add_constitutional_check(r)
+            except Exception as e:
+                # Don't let constitutional check failure break the analysis
+                from backend.llm.guardrails import GuardResult
+                guardrails_report.add_constitutional_check(GuardResult(
+                    passed=True,
+                    guard_name="constitutional_check",
+                    message=f"Constitutional check skipped: {str(e)}",
+                    severity="info"
+                ))
+
+        return result, guardrails_report

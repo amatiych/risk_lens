@@ -8,10 +8,11 @@ from abc import ABC, abstractmethod
 import yfinance as yf
 from pandas import DataFrame
 
+from models.enrichment.price_enricher import PortfolioEnricher
 from models.portfolio import Portfolio
 
 
-class TimeSeriesEnricher(ABC):
+class TimeSeriesEnricher(PortfolioEnricher):
     """Abstract base class for time series enrichment services.
 
     Implementations fetch historical price data and attach it to

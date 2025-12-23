@@ -5,13 +5,12 @@ portfolio holdings with current market prices, calculating market values
 and portfolio weights.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractclassmethod
 import yfinance as yf
-from models.portfolio import Portfolio
+from models.portfolio import Portfolio,PortfolioEnricher
 from typing import Dict, List
 
-
-class PriceEnricher(ABC):
+class PriceEnricher(PortfolioEnricher):
     """Abstract base class for price enrichment services.
 
     Implementations fetch current prices and enrich portfolio holdings
@@ -49,8 +48,9 @@ class PriceEnricher(ABC):
             portfolio.holdings['price'] * portfolio.holdings['shares']
         )
 
-        if portfolio.nav == 1:
+        if portfolio.nav == 1 or portfolio.nav == 0:
             tot_mv = portfolio.holdings['market_value'].sum()
+            portfolio.nav  = tot_mv
         else:
             tot_mv = portfolio.nav
         portfolio.holdings['weight'] = portfolio.holdings['market_value'] / tot_mv

@@ -4,11 +4,21 @@ This module defines the Portfolio class which represents an investment
 portfolio with its holdings, weights, and time series data.
 """
 
-from pandas import DataFrame, read_csv
+from pandas import DataFrame, read_csv, concat
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from core.paths import PORTFOLIOS_FILE, get_holdings_file
+from abc import ABC, abstractmethod
 
+
+
+class PortfolioEnricher(ABC):
+    pass
+    """Abstract base class for all Portfolio Enrichers.
+    """
+    @abstractmethod
+    def enrich_portfolio(self, portfolio):
+        pass
 
 @dataclass
 class Portfolio:
@@ -29,6 +39,7 @@ class Portfolio:
     holdings: DataFrame
     W: Optional[List[float]] = None
     time_series: Optional[DataFrame] = None
+    enrichers : Optional[List[PortfolioEnricher]]= None
 
     @classmethod
     def get_portfolios(cls) -> DataFrame:
@@ -67,6 +78,38 @@ class Portfolio:
             holdings=holdings
         )
 
+    def trade(self, ticker, shares):
+        if ticker in self.holdings.index:
+            self.holdings.loc[ticker,'shares'] += shares
+        else:
+            new_df = DataFrame([{'ticker':ticker,'shares':shares}])
+            new_df.set_index("ticker",inplace=True)
+            self.holdings  = concat([self.holdings, new_df])
+        self.enrich()
+
+    def trade_many(self, trade_list : List[Tuple[str, float]]) -> None:
+
+        new_list = []
+        for ticker,shares in trade_list:
+            if ticker in self.holdings.index:
+                self.holdings.loc[ticker, 'shares'] += shares
+            else:
+               new_list.append((ticker,shares))
+        if len(new_list) > 0:
+            new_df =DataFrame(new_list,columns=['ticker','shares'])
+            new_df.set_index("ticker",inplace=True)
+            self.holdings = concat([self.holdings, new_df])
+        self.enrich()
+
+    def enrich(self):
+        if self.enrichers is None:
+            return
+
+        for enricher in self.enrichers:
+            enricher.enrich_portfolio(self)
+
+
+
 if __name__ == "__main__":
 
     print("-----------------------------------------")
@@ -74,30 +117,22 @@ if __name__ == "__main__":
     print(all_portfolios)
 
     print("-----------------------------------------")
-    portfolio = Portfolio.load(100)
-    from enrichment.price_enricher import YahooFinancePriceEnricher
+    portfolio = Portfolio.load(102)
+    from enrichment.price_enricher import YahooFinancePriceEnricher, PortfolioEnricher
     from enrichment.time_series_enricher import YahooTimeSeriesEnricher
 
     enrichers = [YahooFinancePriceEnricher(),YahooTimeSeriesEnricher()]
     for enricher in enrichers:
         enricher.enrich_portfolio(portfolio)
+    portfolio.enrichers = enrichers
     print("-----------------------------------------")
     print(portfolio.holdings)
 
+    portfolio.trade('ETH-USD',1)
+
     print("-----------------------------------------")
-    print(portfolio.time_series)
-    portfolio.time_series.to_csv("data/time_series.csv")
+    print(portfolio.holdings)
+    portfolio.trade_many([('RIVN',20),('DOGE-USD',10000)])
 
-    print("------------------------------------------")
-    print("TICKERS")
-    tickers =list(portfolio.time_series.columns)
-
-    print(tickers)
-
-    weights = list(portfolio.holdings.loc[tickers,'weight'].values)
-    print("WEIGHTS")
-    print(weights)
-    from backend.risk_engine.var.var_engine import VarEngine
-    var_engine = VarEngine(portfolio.time_series,weights)
-    var = var_engine.calc_var()
-    print(var)
+    print("-----------------------------------------")
+    print(portfolio.holdings)

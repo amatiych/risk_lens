@@ -44,6 +44,7 @@ if __name__ == "__main__":
 
     from backend.reporting.portfolio_report import PortfolioReport
     pr = PortfolioReport(portfolio,var,var_engine.CR,res,regime_analysis)
+    open("/tmp/portfolio_report.txt","w").write(pr.report)
     print(pr.report)
     claude = VaRAnalyzer(pr)
 
