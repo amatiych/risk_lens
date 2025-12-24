@@ -35,7 +35,7 @@ build-backend = "pdm.backend"
 
 
 [tool.pdm]
-distribution = true
+distribution = false
 
 [tool.pdm.scripts]
 download-pswn-bucket = "python tests/download_pswn_bucket.py"
