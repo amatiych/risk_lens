@@ -16,7 +16,10 @@ dependencies = ["pandas>=2.3.3",
        "anthropic>=0.75.0",
        "pyarrow>=22.0.0",
        "streamlit>=1.40.0",
-       "matplotlib>=3.9.0"]
+       "matplotlib>=3.9.0",
+       "dataclasses-json>=0.6.7",
+       "smart-open>=7.5.0",
+       "boto3>=1.42.17"]
 
 requires-python = ">=3.13"
 readme = "README.md"

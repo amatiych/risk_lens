@@ -11,7 +11,9 @@ from numpy import zeros
 from pandas import DataFrame, read_csv
 from datetime import datetime
 from core.paths import get_regime_file
-
+from core.utils import read_file_from_s3
+from regime_analysis_result import RegimeAnalysisReport
+import json
 
 class TransitionMatrix:
     """Computes regime transition probabilities from historical data.
@@ -58,15 +60,11 @@ class RegimeModel:
         regime_info: DataFrame with regime descriptions and metadata.
     """
 
-    factors: List[str]
-    mean_returns: DataFrame
-    covariances: DataFrame
-    regime_dates: DataFrame
-    regime_info: DataFrame
+    regime_info: RegimeAnalysisReport
 
     @classmethod
-    def load(cls) -> "RegimeModel":
-        """Load the regime model from disk.
+    def load(cls,name:str) -> "RegimeModel":
+        """Load the regime model from s3.
 
         Loads regime means, covariances, descriptions, and historical
         regime assignments from the regime data directory.
@@ -77,19 +75,15 @@ class RegimeModel:
         Raises:
             FileNotFoundError: If any regime data files are missing.
         """
-        means = read_csv(get_regime_file("means.csv"))
-        covs = read_csv(get_regime_file("covs.csv"))
-        regime_info = read_csv(get_regime_file("regime_desc.csv"))
-        regime_dates = read_csv(get_regime_file("regimes.csv"))
-        regime_dates['date'] = regime_dates['date'].apply(
-            lambda x: datetime.strptime(x, '%Y-%m-%d')
-        )
-        regime_dates.set_index('date', inplace=True)
-        factors = means.columns.values[1:]
-        return RegimeModel(factors, means, covs, regime_dates, regime_info)
+
+
+        text = read_file_from_s3("risk-lens", f"regimes/{name}.json")
+        full_regime_data = RegimeAnalysisReport.from_json(text)
+
+        return RegimeModel(full_regime_data)
 
 
 
 if __name__ == "__main__":
-    regime = RegimeModel.load()
-    print(regime.mean_returns)
+    regime = RegimeModel.load("main_regime_model")
+    print(regime.regime_info)

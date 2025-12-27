@@ -48,7 +48,7 @@ def get_factor_model_file(model_name: str) -> Path:
     Returns:
         Path to the factor model CSV file.
     """
-    return FACTOR_MODELS_DIR / f"{model_name}.csv"
+    return f"s3://risk-lens/factor_models/{model_name}.csv"
 
 
 def get_regime_file(filename: str) -> Path:
@@ -60,4 +60,6 @@ def get_regime_file(filename: str) -> Path:
     Returns:
         Path to the regime data file.
     """
-    return REGIME_DIR / filename
+
+    return f"s3://risk-lens/regimes/{filename}.json"
+
