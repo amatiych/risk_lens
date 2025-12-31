@@ -12,7 +12,7 @@ from pandas import DataFrame, read_csv
 from datetime import datetime
 from core.paths import get_regime_file
 from core.utils import read_file_from_s3
-from regime_analysis_result import RegimeAnalysisReport
+from models.regime_analysis_result import RegimeAnalysisReport
 import json
 
 class TransitionMatrix:
@@ -61,6 +61,7 @@ class RegimeModel:
     """
 
     regime_info: RegimeAnalysisReport
+    regime_dates: DataFrame
 
     @classmethod
     def load(cls,name:str) -> "RegimeModel":
@@ -79,8 +80,10 @@ class RegimeModel:
 
         text = read_file_from_s3("risk-lens", f"regimes/{name}.json")
         full_regime_data = RegimeAnalysisReport.from_json(text)
-
-        return RegimeModel(full_regime_data)
+        regime_dates = DataFrame(full_regime_data.regime_dates, columns=['date','regime'])
+        regime_dates['date'] = regime_dates['date'].apply(lambda x: datetime.strptime(str(x),'%Y%m%d'))
+        regime_dates.set_index('date', inplace=True)
+        return RegimeModel(full_regime_data,regime_dates)
 
 
 
