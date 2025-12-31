@@ -5,12 +5,12 @@ including tool definitions for runtime data fetching and structured
 output schemas for consistent responses.
 """
 
-from backend.llm.var_analyzer import VaRAnalyzer
+from backend.llm.risk_analyzer import RiskAnalyzer
 from backend.llm.tools import TOOLS, execute_tool
 from backend.llm.schemas import VAR_ANALYSIS_SCHEMA, VaRAnalysisResult
 
 __all__ = [
-    "VaRAnalyzer",
+    "RiskAnalyzer",
     "TOOLS",
     "execute_tool",
     "VAR_ANALYSIS_SCHEMA",
