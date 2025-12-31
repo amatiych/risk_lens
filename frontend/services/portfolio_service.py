@@ -123,7 +123,7 @@ def run_analysis(
     fa = FactorAnalysis(factor_model)
     factor_result = fa.analyze(portfolio)
 
-    regime_model = RegimeModel.load()
+    regime_model = RegimeModel.load("main_regime_model")
     regime_analysis = RegimeAnalysis(portfolio, regime_model)
 
     report = PortfolioReport(

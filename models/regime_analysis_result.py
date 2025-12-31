@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
-from typing import List,Optional,Dict
+from typing import List,Optional,Dict,Tuple
 from pandas import DataFrame
 
 
@@ -28,7 +28,7 @@ class RegimeAnalysisResult:
 @dataclass
 class RegimeAnalysisReport:
     N: int
-    regime_dates : List[int]
+    regime_dates : List[Tuple[int,int]]
     factor_names: List[str]
     regimes: List[RegimeAnalysisResult] = None
 

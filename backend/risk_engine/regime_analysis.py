@@ -43,13 +43,18 @@ class RegimeAnalysis:
         self.regime_model = regime_model
         self.all_ts = portfolio.time_series.pct_change(1).dropna()
         self.proforma = self.all_ts.values @ portfolio.W
-        self.port_ts = DataFrame(self.proforma, index=self.all_ts.index)
+        self.port_ts = DataFrame(self.proforma, index=self.all_ts.index,columns=['performance'])
+
         self.reg_data = self.port_ts.merge(
-            self.regime_model.regime_dates, left_index=True, right_on="date"
-        )
+            self.regime_model.regime_dates, left_index=True, right_index=True)
+
+        regime_info = [(r.regime_id, r.interpretation.label, r.interpretation.description)
+                       for r in regime_model.regime_info.regimes]
+
+        regime_df = DataFrame(regime_info, columns=['regime','label','description'])
         self.reg_stats = self.reg_data.groupby("regime").mean()
         self.reg_stats = self.reg_stats.merge(
-            regime_model.regime_info, left_on="regime", right_on="regime"
+            regime_df, left_on="regime", right_on="regime"
         )
         self.all_ts = self.all_ts.merge(
             regime_model.regime_dates, left_index=True, right_on='date'

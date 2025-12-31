@@ -4,7 +4,7 @@ from models.factor_model import FactorModel
 from models.portfolio import Portfolio
 from models.enrichment.time_series_enricher import YahooTimeSeriesEnricher
 from models.enrichment.price_enricher import YahooFinancePriceEnricher
-from backend.llm.var_analyzer import VaRAnalyzer
+from backend.llm.risk_analyzer import  RiskAnalyzer
 from models.regime_model import RegimeModel
 
 if __name__ == "__main__":
@@ -38,15 +38,14 @@ if __name__ == "__main__":
     fa = FactorAnalysis(model)
     res = fa.analyze(portfolio)
 
-    regime_model = RegimeModel.load()
+    regime_model = RegimeModel.load("main_regime_model")
     regime_analysis = RegimeAnalysis(portfolio, regime_model)
-
 
     from backend.reporting.portfolio_report import PortfolioReport
     pr = PortfolioReport(portfolio,var,var_engine.CR,res,regime_analysis)
     open("/tmp/portfolio_report.txt","w").write(pr.report)
     print(pr.report)
-    claude = VaRAnalyzer(pr)
+    claude = RiskAnalyzer(pr)
 
     analysis = claude.analyze()
 
