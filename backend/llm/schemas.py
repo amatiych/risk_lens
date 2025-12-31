@@ -301,7 +301,7 @@ class VaRAnalysisResult:
                 FactorExposure(
                     factor=fe["factor"],
                     beta=fe.get("beta", 0),
-                    #interpretation=fe["interpretation"],
+                    interpretation=fe.get("interpretation", ""),
                     risk_contribution_pct=fe.get("risk_contribution_pct")
                 )
                 for fe in factor["factor_exposures"]
