@@ -14,7 +14,7 @@ from datetime import datetime
 import anthropic
 
 from backend.reporting.portfolio_report import PortfolioReport
-from backend.llm.tools import TOOLS, execute_tool
+from backend.llm.tools import TOOLS, execute_tool, set_portfolio_context
 from backend.llm.guardrails import GuardrailsReport, GuardResult
 from backend.llm.guardrails.input_guards import InputGuardrails
 from backend.llm.guardrails.output_guards import OutputGuardrails
@@ -69,6 +69,7 @@ You have access to tools to look up additional information:
 - lookup_stock_info: Get company sector, industry, and description for any ticker
 - get_historical_prices: Get price data around a specific date
 - get_market_news: Get recent news headlines for any ticker
+- find_portfolio_diversifiers: Find stocks that would be good diversifiers for the portfolio based on lowest correlation and regime performance. Use this when asked about recommendations, stocks to add, or diversification opportunities.
 
 You have access to the following portfolio data:
 
@@ -81,8 +82,15 @@ Answer questions about this portfolio accurately and concisely. Focus on:
 - Regime behavior
 
 Use the available tools when you need additional information about stocks,
-historical prices, or market news. If you're unsure about something, say so.
-Do not fabricate data."""
+historical prices, or market news. When asked about stock recommendations or
+diversification opportunities, use the find_portfolio_diversifiers tool to
+analyze potential additions. After getting diversification candidates, provide
+insightful commentary on WHY each stock is a good diversifier based on:
+- Its low correlation to the portfolio
+- How it performs in different market regimes (especially in bear markets or high volatility)
+- What sector/industry diversification it provides
+
+If you're unsure about something, say so. Do not fabricate data."""
 
 
 def stream_chat_response(
@@ -105,6 +113,9 @@ def stream_chat_response(
     if not api_key:
         yield "Error: CLAUDE_API_KEY environment variable not set."
         return
+
+    # Set portfolio context for tools that need it
+    set_portfolio_context(report.portfolio)
 
     client = anthropic.Anthropic(api_key=api_key)
     system_prompt = get_system_prompt(report)
@@ -203,6 +214,9 @@ def chat_response_with_tools(
     if not api_key:
         return "Error: CLAUDE_API_KEY environment variable not set."
 
+    # Set portfolio context for tools that need it
+    set_portfolio_context(report.portfolio)
+
     client = anthropic.Anthropic(api_key=api_key)
     system_prompt = get_system_prompt(report)
 
@@ -273,6 +287,9 @@ def get_initial_analysis(report: PortfolioReport) -> str:
     api_key = os.environ.get("CLAUDE_API_KEY")
     if not api_key:
         return "Error: CLAUDE_API_KEY environment variable not set."
+
+    # Set portfolio context for tools that need it
+    set_portfolio_context(report.portfolio)
 
     client = anthropic.Anthropic(api_key=api_key)
 
@@ -361,6 +378,9 @@ def chat_with_guardrails(
     Returns:
         Tuple of (response_text, GuardrailsReport).
     """
+    # Set portfolio context for tools that need it
+    set_portfolio_context(report.portfolio)
+
     guardrails_report = GuardrailsReport()
 
     # Initialize guardrails
@@ -426,6 +446,9 @@ def stream_chat_with_guardrails(
         Tuples of (text_chunk, None) during streaming,
         then ("", GuardrailsReport) at the end.
     """
+    # Set portfolio context for tools that need it
+    set_portfolio_context(report.portfolio)
+
     guardrails_report = GuardrailsReport()
 
     # Initialize guardrails
@@ -533,6 +556,9 @@ def chat_response_with_caching(
     Returns:
         Tuple of (response_text, CacheMetrics).
     """
+    # Set portfolio context for tools that need it
+    set_portfolio_context(report.portfolio)
+
     client = get_cached_client()
     system_prompt = get_system_prompt(report)
 
@@ -604,6 +630,9 @@ def stream_chat_with_caching(
         Tuples of (text_chunk, None) during streaming,
         then ("", CacheMetrics) at the end.
     """
+    # Set portfolio context for tools that need it
+    set_portfolio_context(report.portfolio)
+
     client = get_cached_client()
     system_prompt = get_system_prompt(report)
 
@@ -688,6 +717,9 @@ def chat_with_caching_and_guardrails(
     Returns:
         Tuple of (response_text, GuardrailsReport, CacheMetrics).
     """
+    # Set portfolio context for tools that need it
+    set_portfolio_context(report.portfolio)
+
     guardrails_report = GuardrailsReport()
 
     # Initialize guardrails

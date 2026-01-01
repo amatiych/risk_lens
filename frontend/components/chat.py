@@ -72,6 +72,7 @@ def render_suggested_questions():
     suggestions = [
         "What are the main risk drivers in my portfolio?",
         "How diversified is my portfolio?",
+        "Recommend stocks to add to my portfolio for better diversification",
         "What market factors am I most exposed to?",
         "How does my portfolio perform in different market regimes?",
         "Which positions should I consider reducing for risk management?"
