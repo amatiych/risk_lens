@@ -7,6 +7,7 @@ from models.enrichment.price_enricher import YahooFinancePriceEnricher
 from backend.llm.risk_analyzer import  RiskAnalyzer
 from models.regime_model import RegimeModel
 
+from backend.risk_engine.portfolio_fit import  PortfolioFitAnalyser, MARET_FILE,get_market_ts
 if __name__ == "__main__":
 
 
@@ -24,7 +25,13 @@ if __name__ == "__main__":
     print(portfolio.time_series)
     portfolio.time_series.to_csv("data/time_series.csv")
 
+    regime_model = RegimeModel.load("main_regime_model")
+    market_ts = get_market_ts(MARET_FILE)
 
+    port_fit_analyzer = PortfolioFitAnalyser(portfolio)
+
+    best_fit = port_fit_analyzer.calc_best_fit(market_ts,regime_model,10)
+    print(best_fit)
     tickers = list(portfolio.time_series.columns)
 
 

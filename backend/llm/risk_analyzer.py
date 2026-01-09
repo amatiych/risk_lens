@@ -75,43 +75,27 @@ class RiskAnalyzer:
             self.process_guards = ProcessGuardrails()
             self.constitutional = ConstitutionalGuard()
 
-    def _build_initial_prompt(self) -> str:
-        """Build the initial analysis prompt with portfolio data.
+    def _build_system_prompt(self) -> str:
+        """Build concise system prompt.
 
         Returns:
-            Formatted prompt string with embedded report data.
+            System prompt string (cached separately from report data).
         """
-        return f"""You are a senior risk manager for a hedge fund.
-Review the VaR Analysis results below and provide a comprehensive risk assessment.
+        return f"""Senior hedge fund risk manager. Date: {datetime.today().strftime('%Y-%m-%d')}.
+Analyze portfolio risk: drivers (marginal/incremental VaR), concentration, factors, regimes.
+Use tools for stock info, historical prices, and news context. Use only factual data."""
 
-Today is {datetime.today().strftime('%Y-%m-%d')}
+    def _build_user_prompt(self) -> str:
+        """Build user prompt with report data.
 
-You have access to tools to look up additional information:
-- lookup_stock_info: Get company sector, industry, and description
-- get_historical_prices: Get price data around the VaR date
-- get_market_news: Get recent news for context
+        Returns:
+            User prompt with embedded report.
+        """
+        return f"""Analyze this portfolio risk report:
 
-Please analyze the following:
-
-1. **Risk Drivers**: Identify the largest drivers of risk in terms of marginal and incremental VaR.
-   Use the lookup_stock_info tool to get sector/industry info for each position.
-
-2. **Concentration Analysis**: Identify positions with highest concentration risk and best diversifiers.
-
-3. **VaR Date Context**: Look at the VaR date and use get_historical_prices and get_market_news
-   to identify any risk factors that may have caused the loss that day.
-
-4. **Factor Interpretation**: Interpret the factor exposures and their contribution to portfolio volatility.
-
-5. **Regime Analysis**: Interpret how the portfolio performs across different market regimes.
-
-6. **Recommendations**: Provide actionable recommendations to improve the risk profile.
-
-Use only factual data from the tools. Do not fabricate information.
-
-Risk Report:
 {self.report.report}
-"""
+
+Identify top risk drivers, concentration risks, factor exposures, regime sensitivity, and recommendations."""
 
     def _execute_tool_calls(
         self,
@@ -147,9 +131,9 @@ Risk Report:
     def analyze(self) -> VaRAnalysisResult:
         """Generate AI-powered analysis of the portfolio risk report.
 
-        Sends the risk report to Claude with tools enabled for runtime
-        data fetching. Handles tool calls in a loop until Claude provides
-        a final structured response.
+        Uses single-pass structured output with tool_choice for efficiency.
+        Handles tool calls in a loop until Claude provides the final
+        structured response via the var_analysis_result tool.
 
         Returns:
             VaRAnalysisResult containing structured analysis with risk drivers,
@@ -162,142 +146,144 @@ Risk Report:
         """
         client = anthropic.Anthropic(api_key=self.api_key)
 
+        # Build system prompt with cache control for efficiency
+        system_prompt = [
+            {
+                "type": "text",
+                "text": self._build_system_prompt(),
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
+
         messages = [
-            {"role": "user", "content": self._build_initial_prompt()}
+            {"role": "user", "content": self._build_user_prompt()}
+        ]
+
+        # Combined tools: data lookup + structured output
+        all_tools = TOOLS + [
+            {
+                "name": "var_analysis_result",
+                "description": "Submit the final structured VaR analysis. Call this after gathering all necessary information.",
+                "input_schema": VAR_ANALYSIS_SCHEMA["schema"]
+            }
         ]
 
         iteration = 0
-        final_text = ""
 
         while iteration < self.max_tool_iterations:
             response = client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=4000,
-                tools=TOOLS,
+                system=system_prompt,
+                tools=all_tools,
                 messages=messages
             )
 
             # Check if Claude wants to use tools
             if response.stop_reason == "tool_use":
-                # Execute tool calls
-                tool_results = self._execute_tool_calls(response)
+                tool_results = []
+                final_result = None
 
-                # Add assistant response and tool results to conversation
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
-                messages.append({
-                    "role": "user",
-                    "content": tool_results
-                })
+                for block in response.content:
+                    if block.type == "tool_use":
+                        # Check if this is the final structured output
+                        if block.name == "var_analysis_result":
+                            final_result = VaRAnalysisResult.from_dict(block.input)
+                        else:
+                            # Execute data lookup tools
+                            try:
+                                result = execute_tool(block.name, block.input)
+                                tool_results.append({
+                                    "type": "tool_result",
+                                    "tool_use_id": block.id,
+                                    "content": json.dumps(result)
+                                })
+                            except Exception as e:
+                                tool_results.append({
+                                    "type": "tool_result",
+                                    "tool_use_id": block.id,
+                                    "content": json.dumps({"error": str(e)}),
+                                    "is_error": True
+                                })
+
+                # If we got the final result, return it
+                if final_result:
+                    return final_result
+
+                # Otherwise continue the conversation with tool results
+                if tool_results:
+                    messages.append({
+                        "role": "assistant",
+                        "content": response.content
+                    })
+                    messages.append({
+                        "role": "user",
+                        "content": tool_results
+                    })
 
                 iteration += 1
             else:
-                # Claude is done with tools, extract final text
-                for block in response.content:
-                    if hasattr(block, "text"):
-                        final_text = block.text
+                # No tool use - force structured output
                 break
 
-        # If we hit max iterations, force a final response
-        if iteration >= self.max_tool_iterations and not final_text:
-            messages.append({
-                "role": "user",
-                "content": "Please provide your final analysis now based on the information gathered."
-            })
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=4000,
-                messages=messages
-            )
-            for block in response.content:
-                if hasattr(block, "text"):
-                    final_text = block.text
-
-        # Now request structured output
-        structured_response = self._get_structured_response(client, final_text)
-        return structured_response
-
-    def _get_structured_response(
-        self,
-        client: anthropic.Anthropic,
-        analysis_text: str
-    ) -> VaRAnalysisResult:
-        """Convert free-form analysis into structured output.
-
-        Args:
-            client: Anthropic client instance.
-            analysis_text: Free-form analysis text from Claude.
-
-        Returns:
-            VaRAnalysisResult with parsed structured data.
-        """
-        prompt = f"""Based on this analysis, provide a structured JSON response.
-
-Analysis:
-{analysis_text}
-
-Return a JSON object with exactly these fields:
-- executive_summary: Brief 2-3 sentence overview
-- risk_drivers: Array of objects with ticker, marginal_var_contribution (number), incremental_var_contribution (number), explanation, and optionally company_name and sector
-- concentration_analysis: Object with most_concentrated_positions (array of tickers), best_diversifiers (array of tickers), concentration_risk_level (one of: low, moderate, high, very_high), concentration_summary (string)
-- factor_interpretation: Object with dominant_factors (array of strings), factor_risk_summary (string), and optionally factor_exposures array
-- regime_interpretation: Object with regime_sensitivity (one of: low, moderate, high), regime_risk_summary (string), and optionally best_performing_regime and worst_performing_regime
-- var_date_context: Object with var_date (YYYY-MM-DD), context_explanation (string), and optionally market_events (array) and price_movements (array)
-- recommendations: Array of actionable recommendation strings
-
-Return ONLY valid JSON, no markdown formatting."""
+        # Force final structured output if we haven't got it yet
+        messages.append({
+            "role": "user",
+            "content": "Provide your analysis now using the var_analysis_result tool."
+        })
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}]
+            system=system_prompt,
+            tools=[{
+                "name": "var_analysis_result",
+                "description": "Submit the final structured VaR analysis",
+                "input_schema": VAR_ANALYSIS_SCHEMA["schema"]
+            }],
+            tool_choice={"type": "tool", "name": "var_analysis_result"},
+            messages=messages
         )
 
-        response_text = response.content[0].text.strip()
+        # Extract from forced tool call
+        for block in response.content:
+            if block.type == "tool_use" and block.name == "var_analysis_result":
+                return VaRAnalysisResult.from_dict(block.input)
 
-        # Clean JSON if wrapped in code blocks
-        clean_json = response_text
-        if "```json" in clean_json:
-            clean_json = clean_json.split("```json")[1].split("```")[0]
-        elif "```" in clean_json:
-            clean_json = clean_json.split("```")[1].split("```")[0]
-        clean_json = clean_json.strip()
+        # Fallback if parsing fails
+        return self._empty_result("Unable to generate structured analysis")
 
-        try:
-            data = json.loads(clean_json)
-            return VaRAnalysisResult.from_dict(data)
-        except json.JSONDecodeError as e:
-            # Return a minimal result if parsing fails
-            return VaRAnalysisResult(
-                executive_summary=analysis_text[:500] if analysis_text else "Analysis unavailable",
-                risk_drivers=[],
-                concentration_analysis=type(
-                    "ConcentrationAnalysis", (), {
-                        "most_concentrated_positions": [],
-                        "best_diversifiers": [],
-                        "concentration_risk_level": "unknown",
-                        "concentration_summary": ""
-                    }
-                )(),
-                factor_interpretation=type(
-                    "FactorInterpretation", (), {
-                        "dominant_factors": [],
-                        "factor_risk_summary": "",
-                        "factor_exposures": None
-                    }
-                )(),
-                regime_interpretation=type(
-                    "RegimeInterpretation", (), {
-                        "regime_sensitivity": "unknown",
-                        "regime_risk_summary": "",
-                        "best_performing_regime": None,
-                        "worst_performing_regime": None
-                    }
-                )(),
-                recommendations=[]
-            )
+    def _empty_result(self, message: str) -> VaRAnalysisResult:
+        """Create an empty result with error message.
+
+        Args:
+            message: Error message for executive summary.
+
+        Returns:
+            VaRAnalysisResult with empty fields.
+        """
+        from backend.llm.schemas import (
+            ConcentrationAnalysis, FactorInterpretation, RegimeInterpretation
+        )
+        return VaRAnalysisResult(
+            executive_summary=message,
+            risk_drivers=[],
+            concentration_analysis=ConcentrationAnalysis(
+                most_concentrated_positions=[],
+                best_diversifiers=[],
+                concentration_risk_level="unknown",
+                concentration_summary=""
+            ),
+            factor_interpretation=FactorInterpretation(
+                dominant_factors=[],
+                factor_risk_summary=""
+            ),
+            regime_interpretation=RegimeInterpretation(
+                regime_sensitivity="unknown",
+                regime_risk_summary=""
+            ),
+            recommendations=[]
+        )
 
     def analyze_legacy(self) -> str:
         """Legacy analyze method returning raw text (for backward compatibility).
@@ -331,42 +317,17 @@ Return ONLY valid JSON, no markdown formatting."""
         guardrails_report = GuardrailsReport()
 
         if not self.guardrails_enabled:
-            # Just run analysis without guardrails
             result = self.analyze()
             return result, guardrails_report
 
         # Step 1: Input validation
-        prompt = self._build_initial_prompt()
+        prompt = self._build_user_prompt()
         input_results = self.input_guards.run_all_checks(prompt)
         for r in input_results:
             guardrails_report.add_input_check(r)
 
-        # Check if blocked by input guards
         if guardrails_report.blocked:
-            # Return empty result with guardrails report
-            from backend.llm.schemas import (
-                ConcentrationAnalysis, FactorInterpretation, RegimeInterpretation
-            )
-            empty_result = VaRAnalysisResult(
-                executive_summary="Analysis blocked by input guardrails",
-                risk_drivers=[],
-                concentration_analysis=ConcentrationAnalysis(
-                    most_concentrated_positions=[],
-                    best_diversifiers=[],
-                    concentration_risk_level="unknown",
-                    concentration_summary=""
-                ),
-                factor_interpretation=FactorInterpretation(
-                    dominant_factors=[],
-                    factor_risk_summary=""
-                ),
-                regime_interpretation=RegimeInterpretation(
-                    regime_sensitivity="unknown",
-                    regime_risk_summary=""
-                ),
-                recommendations=[]
-            )
-            return empty_result, guardrails_report
+            return self._empty_result("Analysis blocked by input guardrails"), guardrails_report
 
         # Step 2: Process checks (rate limiting, budget)
         process_results = self.process_guards.pre_request_checks(self.user_id)
@@ -374,29 +335,7 @@ Return ONLY valid JSON, no markdown formatting."""
             guardrails_report.add_process_check(r)
 
         if guardrails_report.blocked:
-            from backend.llm.schemas import (
-                ConcentrationAnalysis, FactorInterpretation, RegimeInterpretation
-            )
-            empty_result = VaRAnalysisResult(
-                executive_summary="Analysis blocked by rate limiting",
-                risk_drivers=[],
-                concentration_analysis=ConcentrationAnalysis(
-                    most_concentrated_positions=[],
-                    best_diversifiers=[],
-                    concentration_risk_level="unknown",
-                    concentration_summary=""
-                ),
-                factor_interpretation=FactorInterpretation(
-                    dominant_factors=[],
-                    factor_risk_summary=""
-                ),
-                regime_interpretation=RegimeInterpretation(
-                    regime_sensitivity="unknown",
-                    regime_risk_summary=""
-                ),
-                recommendations=[]
-            )
-            return empty_result, guardrails_report
+            return self._empty_result("Analysis blocked by rate limiting"), guardrails_report
 
         # Step 3: Run the analysis
         result = self.analyze()
@@ -427,7 +366,6 @@ Return ONLY valid JSON, no markdown formatting."""
                 for r in constitutional_results:
                     guardrails_report.add_constitutional_check(r)
             except Exception as e:
-                # Don't let constitutional check failure break the analysis
                 from backend.llm.guardrails import GuardResult
                 guardrails_report.add_constitutional_check(GuardResult(
                     passed=True,

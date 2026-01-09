@@ -197,10 +197,8 @@ class VarEngine:
             idx = idxs[i, :]
 
             es = calc_expected_shortfall(P, idx, k)
-
-            var = -1 * float(vars_[i])
             var_idx = int(idx[k])
-
+            var = -1 * float(vars_[i])
             P_wo = P[:, None] - self.R * self.W
             var_wo = np.partition(P_wo, k, axis=0)[k, :]
             mar_var = var - var_wo
