@@ -42,7 +42,9 @@ class TransitionMatrix:
             to_regime_id = regimes[i + 1]
             txn_counts[from_regime_id, to_regime_id] += 1
         row_sums = txn_counts.sum(axis=1, keepdims=True)
-        self.txn_probs = txn_counts / row_sums / row_sums
+        self.txn_probs = txn_counts / row_sums
+        self.regimes = regime_list
+
 
 
 @dataclass
@@ -89,4 +91,8 @@ class RegimeModel:
 
 if __name__ == "__main__":
     regime = RegimeModel.load("main_regime_model")
-    print(regime.regime_info)
+    txn_matrix = TransitionMatrix(regime.regime_dates)
+
+
+
+    print(txn_matrix.txn_probs)

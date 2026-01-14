@@ -11,6 +11,7 @@ from typing import List, Optional
 from backend.risk_engine.factor_analysis import FactorResult
 from backend.risk_engine.regime_analysis import RegimeAnalysis
 from backend.risk_engine.var.var_engine import VaR
+from backend.risk_engine.portfolio_pca import PortfolioPCA
 from models.portfolio import Portfolio
 import json
 from pandas import DataFrame
@@ -44,7 +45,8 @@ class PortfolioReport:
         var: List[VaR],
         cr: Optional[DataFrame] = None,
         factor_res: Optional[FactorResult] = None,
-        regime_anlaysis: Optional[RegimeAnalysis] = None
+        regime_anlaysis: Optional[RegimeAnalysis] = None,
+        pca:  Optional[PortfolioPCA] = None
     ):
         """Initialize portfolio report with all analysis components.
 
@@ -62,6 +64,7 @@ class PortfolioReport:
         self.holdings_json = self.portfolio.holdings.reset_index().to_json(
             orient='records'
         )
+        self.pca = pca
 
         mvs = self.portfolio.holdings.market_value.values
         net_value = sum(mvs)
@@ -123,6 +126,15 @@ class PortfolioReport:
 
         Holdings Time Series with Regime Data:
         {regime_anlaysis.stats_by_regime.to_json(orient='records', double_precision=2)}
+        
+        PCA Analysis:
+        Variance Explained:
+        {self.pca.var_pct}
+        Cumulative Variance Explained:
+        {self.pca.cum_var_pct}
+        Components:
+        {self.pca.comp}
+                
         """
 
 

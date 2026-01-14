@@ -1,4 +1,5 @@
 from backend.risk_engine.factor_analysis import FactorAnalysis
+from backend.risk_engine.portfolio_pca import PortfolioPCA
 from backend.risk_engine.regime_analysis import RegimeAnalysis
 from models.factor_model import FactorModel
 from models.portfolio import Portfolio
@@ -8,12 +9,13 @@ from backend.llm.risk_analyzer import  RiskAnalyzer
 from models.regime_model import RegimeModel
 
 from backend.risk_engine.portfolio_fit import  PortfolioFitAnalyser, MARET_FILE,get_market_ts
+from sklearn.decomposition import PCA
 if __name__ == "__main__":
 
 
 
     print("-----------------------------------------")
-    portfolio = Portfolio.load(101)
+    portfolio = Portfolio.load(108)
 
     enrichers = [YahooFinancePriceEnricher(),YahooTimeSeriesEnricher()]
     for enricher in enrichers:
@@ -21,9 +23,14 @@ if __name__ == "__main__":
     print("-----------------------------------------")
     print(portfolio.holdings)
 
+    pca = PortfolioPCA(portfolio)
+
+
+
+
     print("-----------------------------------------")
     print(portfolio.time_series)
-    portfolio.time_series.to_csv("data/time_series.csv")
+    #portfolio.time_series.to_csv("data/time_series.csv")
 
     regime_model = RegimeModel.load("main_regime_model")
     market_ts = get_market_ts(MARET_FILE)
@@ -49,7 +56,7 @@ if __name__ == "__main__":
     regime_analysis = RegimeAnalysis(portfolio, regime_model)
 
     from backend.reporting.portfolio_report import PortfolioReport
-    pr = PortfolioReport(portfolio,var,var_engine.CR,res,regime_analysis)
+    pr = PortfolioReport(portfolio,var,var_engine.CR,res,regime_analysis,pca)
     open("/tmp/portfolio_report.txt","w").write(pr.report)
     print(pr.report)
     claude = RiskAnalyzer(pr)

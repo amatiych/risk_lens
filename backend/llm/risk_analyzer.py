@@ -82,7 +82,8 @@ class RiskAnalyzer:
             System prompt string (cached separately from report data).
         """
         return f"""Senior hedge fund risk manager. Date: {datetime.today().strftime('%Y-%m-%d')}.
-Analyze portfolio risk: drivers (marginal/incremental VaR), concentration, factors, regimes.
+Analyze portfolio risk: drivers (marginal/incremental VaR), concentration, factors, regimes
+If availbale provide factor diversification analysis based on PCA data. 
 Use tools for stock info, historical prices, and news context. Use only factual data."""
 
     def _build_user_prompt(self) -> str:
