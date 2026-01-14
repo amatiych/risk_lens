@@ -8,6 +8,7 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import List, Optional
 
+from backend.risk_engine.portfolio_pca import PortfolioPCA
 from models.portfolio import Portfolio
 from models.enrichment.price_enricher import YahooFinancePriceEnricher
 from models.enrichment.time_series_enricher import YahooTimeSeriesEnricher
@@ -126,12 +127,16 @@ def run_analysis(
     regime_model = RegimeModel.load("main_regime_model")
     regime_analysis = RegimeAnalysis(portfolio, regime_model)
 
+    pca = PortfolioPCA(portfolio)
+
+
     report = PortfolioReport(
         portfolio,
         var_results,
         correlation_matrix,
         factor_result,
-        regime_analysis
+        regime_analysis,
+        pca
     )
 
     return AnalysisResults(
