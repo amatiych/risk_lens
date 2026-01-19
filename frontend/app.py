@@ -51,6 +51,8 @@ def init_session_state():
         st.session_state.ai_summary = None
     if 'current_page' not in st.session_state:
         st.session_state.current_page = "Upload"
+    if 'llm_provider' not in st.session_state:
+        st.session_state.llm_provider = "claude"
 
 
 def main():
@@ -63,6 +65,15 @@ def main():
 
     st.sidebar.title("Risk Lens")
     st.sidebar.markdown("Portfolio Risk Analysis")
+
+    # LLM Provider selector
+    st.sidebar.markdown("---")
+    st.session_state.llm_provider = st.sidebar.selectbox(
+        "LLM Provider",
+        ["claude", "openai"],
+        index=0 if st.session_state.llm_provider == "claude" else 1,
+        help="Select which AI model to use for analysis"
+    )
 
     if st.session_state.analysis_results is not None:
         page = st.sidebar.radio(

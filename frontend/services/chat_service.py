@@ -1,8 +1,8 @@
-"""Chat service for conversational portfolio Q&A with Claude AI.
+"""Chat service for conversational portfolio Q&A with LLM AI.
 
-This module provides functions for streaming chat conversations with Claude
-about portfolio risk analysis, with the portfolio report as context.
-Supports tool calling for real-time data lookup during conversations,
+This module provides functions for streaming chat conversations with LLM
+(Claude or OpenAI) about portfolio risk analysis, with the portfolio report
+as context. Supports tool calling for real-time data lookup during conversations,
 comprehensive guardrails for safety and reliability, and prompt caching
 for cost optimization.
 """
@@ -12,6 +12,7 @@ import json
 from typing import List, Dict, Generator, Any, Optional, Tuple
 from datetime import datetime
 import anthropic
+import streamlit as st
 
 from backend.reporting.portfolio_report import PortfolioReport
 from backend.llm.tools import TOOLS, execute_tool, set_portfolio_context
@@ -28,10 +29,22 @@ from backend.llm.caching import (
     record_cache_metrics,
     get_session_stats,
 )
+from backend.llm.providers import LLMConfig, get_provider, LLMProvider
 
 
 # Session-level cached client for reuse across calls
 _cached_client: Optional[CachedClient] = None
+
+
+def get_llm_provider() -> LLMProvider:
+    """Get the LLM provider based on session state.
+
+    Returns:
+        LLMProvider instance for the selected provider.
+    """
+    provider_name = st.session_state.get("llm_provider", "claude")
+    config = LLMConfig(provider=provider_name)
+    return get_provider(config)
 
 
 def get_cached_client() -> CachedClient:
@@ -97,27 +110,22 @@ def stream_chat_response(
     messages: List[Dict[str, str]],
     report: PortfolioReport
 ) -> Generator[str, None, None]:
-    """Stream a chat response from Claude for the given conversation.
+    """Stream a chat response from the LLM for the given conversation.
 
     Handles tool calls during the conversation, executing them and
-    continuing until Claude provides a final text response.
+    continuing until the LLM provides a final text response.
 
     Args:
         messages: List of conversation messages with 'role' and 'content'.
         report: PortfolioReport providing context for the conversation.
 
     Yields:
-        Text chunks as they stream from Claude's response.
+        Text chunks as they stream from the LLM's response.
     """
-    api_key = os.environ.get("CLAUDE_API_KEY")
-    if not api_key:
-        yield "Error: CLAUDE_API_KEY environment variable not set."
-        return
-
     # Set portfolio context for tools that need it
     set_portfolio_context(report.portfolio)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    provider = get_llm_provider()
     system_prompt = get_system_prompt(report)
 
     # Make a copy of messages to avoid modifying the original
@@ -127,48 +135,43 @@ def stream_chat_response(
     iteration = 0
 
     while iteration < max_tool_iterations:
-        # Try streaming first for the final response
         try:
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=2000,
-                system=system_prompt,
+            response = provider.create_message(
+                system_prompt=system_prompt,
+                messages=conversation,
                 tools=TOOLS,
-                messages=conversation
+                max_tokens=2000
             )
 
-            # Check if Claude wants to use tools
+            # Check if LLM wants to use tools
             if response.stop_reason == "tool_use":
                 # Execute tools
                 tool_results = []
                 tool_names_used = []
 
-                for block in response.content:
-                    if block.type == "tool_use":
-                        tool_names_used.append(block.name)
-                        try:
-                            result = execute_tool(block.name, block.input)
-                            tool_results.append({
-                                "type": "tool_result",
-                                "tool_use_id": block.id,
-                                "content": json.dumps(result)
-                            })
-                        except Exception as e:
-                            tool_results.append({
-                                "type": "tool_result",
-                                "tool_use_id": block.id,
-                                "content": json.dumps({"error": str(e)}),
-                                "is_error": True
-                            })
+                for tool_call in response.tool_calls:
+                    tool_names_used.append(tool_call.name)
+                    try:
+                        result = execute_tool(tool_call.name, tool_call.arguments)
+                        tool_results.append(
+                            provider.format_tool_result(tool_call.id, json.dumps(result))
+                        )
+                    except Exception as e:
+                        tool_results.append(
+                            provider.format_tool_result(
+                                tool_call.id,
+                                json.dumps({"error": str(e)}),
+                                is_error=True
+                            )
+                        )
 
                 # Yield status message
                 yield f"[Looking up: {', '.join(tool_names_used)}...]\n\n"
 
                 # Add to conversation and continue
-                conversation.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
+                conversation.append(
+                    provider.format_assistant_message(response.content, response.tool_calls)
+                )
                 conversation.append({
                     "role": "user",
                     "content": tool_results
@@ -176,17 +179,9 @@ def stream_chat_response(
 
                 iteration += 1
             else:
-                # No more tool calls, stream the final response
-                # We need to make another call with streaming
-                with client.messages.stream(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=2000,
-                    system=system_prompt,
-                    tools=TOOLS,
-                    messages=conversation
-                ) as stream:
-                    for text in stream.text_stream:
-                        yield text
+                # No more tool calls, yield the final response
+                if response.content:
+                    yield response.content
                 break
 
         except Exception as e:
@@ -201,23 +196,19 @@ def chat_response_with_tools(
     """Get a complete chat response with tool support (non-streaming).
 
     Handles tool calls during the conversation, executing them and
-    continuing until Claude provides a final text response.
+    continuing until the LLM provides a final text response.
 
     Args:
         messages: List of conversation messages with 'role' and 'content'.
         report: PortfolioReport providing context for the conversation.
 
     Returns:
-        Complete response text from Claude.
+        Complete response text from the LLM.
     """
-    api_key = os.environ.get("CLAUDE_API_KEY")
-    if not api_key:
-        return "Error: CLAUDE_API_KEY environment variable not set."
-
     # Set portfolio context for tools that need it
     set_portfolio_context(report.portfolio)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    provider = get_llm_provider()
     system_prompt = get_system_prompt(report)
 
     conversation = list(messages)
@@ -225,47 +216,42 @@ def chat_response_with_tools(
     iteration = 0
 
     while iteration < max_tool_iterations:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            system=system_prompt,
+        response = provider.create_message(
+            system_prompt=system_prompt,
+            messages=conversation,
             tools=TOOLS,
-            messages=conversation
+            max_tokens=2000
         )
 
         if response.stop_reason == "tool_use":
             tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    try:
-                        result = execute_tool(block.name, block.input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(result)
-                        })
-                    except Exception as e:
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps({"error": str(e)}),
-                            "is_error": True
-                        })
+            for tool_call in response.tool_calls:
+                try:
+                    result = execute_tool(tool_call.name, tool_call.arguments)
+                    tool_results.append(
+                        provider.format_tool_result(tool_call.id, json.dumps(result))
+                    )
+                except Exception as e:
+                    tool_results.append(
+                        provider.format_tool_result(
+                            tool_call.id,
+                            json.dumps({"error": str(e)}),
+                            is_error=True
+                        )
+                    )
 
-            conversation.append({
-                "role": "assistant",
-                "content": response.content
-            })
+            conversation.append(
+                provider.format_assistant_message(response.content, response.tool_calls)
+            )
             conversation.append({
                 "role": "user",
                 "content": tool_results
             })
             iteration += 1
         else:
-            # Extract final text
-            for block in response.content:
-                if hasattr(block, "text"):
-                    return block.text
+            # Return final text
+            if response.content:
+                return response.content
             break
 
     return "Unable to generate response after maximum tool iterations."
@@ -274,7 +260,7 @@ def chat_response_with_tools(
 def get_initial_analysis(report: PortfolioReport) -> str:
     """Generate initial AI summary analysis of the portfolio.
 
-    Sends portfolio data to Claude for a concise executive summary
+    Sends portfolio data to the LLM for a concise executive summary
     covering risk profile, top contributors, and key exposures.
     Uses tool calling to enrich with stock information.
 
@@ -282,16 +268,15 @@ def get_initial_analysis(report: PortfolioReport) -> str:
         report: PortfolioReport containing all analysis data.
 
     Returns:
-        String containing Claude's executive summary (under 300 words).
+        String containing the LLM's executive summary (under 300 words).
     """
-    api_key = os.environ.get("CLAUDE_API_KEY")
-    if not api_key:
-        return "Error: CLAUDE_API_KEY environment variable not set."
-
     # Set portfolio context for tools that need it
     set_portfolio_context(report.portfolio)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    provider = get_llm_provider()
+
+    system_prompt = f"""You are a senior risk analyst. Today is {datetime.today().strftime('%Y-%m-%d')}.
+Analyze portfolios and provide concise executive summaries."""
 
     messages = [{
         "role": "user",
@@ -312,45 +297,41 @@ Portfolio Data:
     iteration = 0
 
     while iteration < max_iterations:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1000,
+        response = provider.create_message(
+            system_prompt=system_prompt,
+            messages=messages,
             tools=TOOLS,
-            messages=messages
+            max_tokens=1000
         )
 
         if response.stop_reason == "tool_use":
             tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    try:
-                        result = execute_tool(block.name, block.input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(result)
-                        })
-                    except Exception as e:
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps({"error": str(e)}),
-                            "is_error": True
-                        })
+            for tool_call in response.tool_calls:
+                try:
+                    result = execute_tool(tool_call.name, tool_call.arguments)
+                    tool_results.append(
+                        provider.format_tool_result(tool_call.id, json.dumps(result))
+                    )
+                except Exception as e:
+                    tool_results.append(
+                        provider.format_tool_result(
+                            tool_call.id,
+                            json.dumps({"error": str(e)}),
+                            is_error=True
+                        )
+                    )
 
-            messages.append({
-                "role": "assistant",
-                "content": response.content
-            })
+            messages.append(
+                provider.format_assistant_message(response.content, response.tool_calls)
+            )
             messages.append({
                 "role": "user",
                 "content": tool_results
             })
             iteration += 1
         else:
-            for block in response.content:
-                if hasattr(block, "text"):
-                    return block.text.strip()
+            if response.content:
+                return response.content.strip()
             break
 
     return "Unable to generate analysis."
