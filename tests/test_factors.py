@@ -4,7 +4,7 @@ from models.factor_model import FactorModel
 from models.enrichment.time_series_enricher import YahooTimeSeriesEnricher
 from models.enrichment.price_enricher import YahooFinancePriceEnricher
 
-from backend.llm.risk_analyzer import VaRAnalyzer
+from backend.llm.risk_analyzer import RiskAnalyzer
 from backend.risk_engine.factor_analysis import FactorAnalysis
 
 if __name__ == "__main__":

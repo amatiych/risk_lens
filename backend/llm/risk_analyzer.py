@@ -1,17 +1,14 @@
-"""AI-powered VaR analysis using Claude for intelligent risk interpretation.
+"""AI-powered VaR analysis using LLM for intelligent risk interpretation.
 
-This module provides the VaRAnalyzer class which uses Claude AI to interpret
-portfolio risk metrics and provide actionable insights for risk managers.
+This module provides the RiskAnalyzer class which uses LLM APIs (Claude or OpenAI)
+to interpret portfolio risk metrics and provide actionable insights for risk managers.
 Uses tool calling for runtime data fetching, structured outputs for
 consistent responses, and comprehensive guardrails for safety.
 """
 
-import os
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-
-import anthropic
 
 from backend.llm.tools import TOOLS, execute_tool
 from backend.llm.schemas import VAR_ANALYSIS_SCHEMA, VaRAnalysisResult
@@ -20,6 +17,7 @@ from backend.llm.guardrails.input_guards import InputGuardrails
 from backend.llm.guardrails.output_guards import OutputGuardrails
 from backend.llm.guardrails.process_guards import ProcessGuardrails, GuardedClient
 from backend.llm.guardrails.constitutional import ConstitutionalGuard
+from backend.llm.providers import LLMConfig, LLMProvider, get_provider
 
 
 # Import GuardrailsReport from the package
@@ -27,24 +25,31 @@ from backend.llm.guardrails import GuardrailsReport
 
 
 class RiskAnalyzer:
-    """Uses Claude AI to analyze and interpret VaR reports.
+    """Uses LLM AI to analyze and interpret VaR reports.
 
     Takes a portfolio risk report and generates comprehensive analysis
     including risk drivers, concentration analysis, factor interpretation,
     and regime-based insights. Uses tool calling to fetch real-time data
     from Yahoo Finance and structured outputs for consistent responses.
 
+    Supports multiple LLM providers (Claude, OpenAI) via configuration.
+
     Attributes:
-        api_key: Anthropic API key from CLAUDE_API_KEY environment variable.
+        config: LLM configuration specifying provider and model.
+        provider: LLM provider instance for API calls.
         report: PortfolioReport instance containing risk metrics.
         max_tool_iterations: Maximum number of tool call rounds (default: 10).
 
     Example:
+        # Default (Claude)
         report = PortfolioReport(portfolio, var_results, correlation, factors, regimes)
-        analyzer = VaRAnalyzer(report)
+        analyzer = RiskAnalyzer(report)
         result = analyzer.analyze()
-        print(result.executive_summary)
-        print(result.recommendations)
+
+        # With OpenAI
+        config = LLMConfig(provider="openai")
+        analyzer = RiskAnalyzer(report, config=config)
+        result = analyzer.analyze()
     """
 
     def __init__(
@@ -52,17 +57,20 @@ class RiskAnalyzer:
         report: PortfolioReport,
         max_tool_iterations: int = 10,
         guardrails_enabled: bool = True,
-        user_id: str = "default"
+        user_id: str = "default",
+        config: Optional[LLMConfig] = None
     ):
-        """Initialize the VaR analyzer with a portfolio report.
+        """Initialize the risk analyzer with a portfolio report.
 
         Args:
             report: PortfolioReport containing VaR, factor, and regime data.
             max_tool_iterations: Maximum rounds of tool calls before forcing completion.
             guardrails_enabled: Whether to run guardrails checks.
             user_id: User identifier for rate limiting and logging.
+            config: LLM configuration. Defaults to Claude if not provided.
         """
-        self.api_key = os.environ.get("CLAUDE_API_KEY")
+        self.config = config or LLMConfig()
+        self.provider: LLMProvider = get_provider(self.config)
         self.report = report
         self.max_tool_iterations = max_tool_iterations
         self.guardrails_enabled = guardrails_enabled
@@ -98,42 +106,11 @@ Use tools for stock info, historical prices, and news context. Use only factual 
 
 Identify top risk drivers, concentration risks, factor exposures, regime sensitivity, and recommendations."""
 
-    def _execute_tool_calls(
-        self,
-        response: anthropic.types.Message
-    ) -> List[Dict[str, Any]]:
-        """Execute all tool calls from a response.
-
-        Args:
-            response: Claude API response containing tool_use blocks.
-
-        Returns:
-            List of tool_result dictionaries to send back to Claude.
-        """
-        tool_results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                try:
-                    result = execute_tool(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": json.dumps(result)
-                    })
-                except Exception as e:
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": json.dumps({"error": str(e)}),
-                        "is_error": True
-                    })
-        return tool_results
-
     def analyze(self) -> VaRAnalysisResult:
         """Generate AI-powered analysis of the portfolio risk report.
 
         Uses single-pass structured output with tool_choice for efficiency.
-        Handles tool calls in a loop until Claude provides the final
+        Handles tool calls in a loop until the LLM provides the final
         structured response via the var_analysis_result tool.
 
         Returns:
@@ -142,21 +119,12 @@ Identify top risk drivers, concentration risks, factor exposures, regime sensiti
             and recommendations.
 
         Raises:
-            anthropic.APIError: If the API call fails.
+            Exception: If the API call fails.
             ValueError: If unable to parse structured response.
         """
-        client = anthropic.Anthropic(api_key=self.api_key)
+        system_prompt = self._build_system_prompt()
 
-        # Build system prompt with cache control for efficiency
-        system_prompt = [
-            {
-                "type": "text",
-                "text": self._build_system_prompt(),
-                "cache_control": {"type": "ephemeral"}
-            }
-        ]
-
-        messages = [
+        messages: List[Dict[str, Any]] = [
             {"role": "user", "content": self._build_user_prompt()}
         ]
 
@@ -172,40 +140,40 @@ Identify top risk drivers, concentration risks, factor exposures, regime sensiti
         iteration = 0
 
         while iteration < self.max_tool_iterations:
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=4000,
-                system=system_prompt,
+            response = self.provider.create_message(
+                system_prompt=system_prompt,
+                messages=messages,
                 tools=all_tools,
-                messages=messages
+                max_tokens=4000
             )
 
-            # Check if Claude wants to use tools
+            # Check if LLM wants to use tools
             if response.stop_reason == "tool_use":
                 tool_results = []
                 final_result = None
 
-                for block in response.content:
-                    if block.type == "tool_use":
-                        # Check if this is the final structured output
-                        if block.name == "var_analysis_result":
-                            final_result = VaRAnalysisResult.from_dict(block.input)
-                        else:
-                            # Execute data lookup tools
-                            try:
-                                result = execute_tool(block.name, block.input)
-                                tool_results.append({
-                                    "type": "tool_result",
-                                    "tool_use_id": block.id,
-                                    "content": json.dumps(result)
-                                })
-                            except Exception as e:
-                                tool_results.append({
-                                    "type": "tool_result",
-                                    "tool_use_id": block.id,
-                                    "content": json.dumps({"error": str(e)}),
-                                    "is_error": True
-                                })
+                for tool_call in response.tool_calls:
+                    # Check if this is the final structured output
+                    if tool_call.name == "var_analysis_result":
+                        final_result = VaRAnalysisResult.from_dict(tool_call.arguments)
+                    else:
+                        # Execute data lookup tools
+                        try:
+                            result = execute_tool(tool_call.name, tool_call.arguments)
+                            tool_results.append(
+                                self.provider.format_tool_result(
+                                    tool_call.id,
+                                    json.dumps(result)
+                                )
+                            )
+                        except Exception as e:
+                            tool_results.append(
+                                self.provider.format_tool_result(
+                                    tool_call.id,
+                                    json.dumps({"error": str(e)}),
+                                    is_error=True
+                                )
+                            )
 
                 # If we got the final result, return it
                 if final_result:
@@ -213,10 +181,12 @@ Identify top risk drivers, concentration risks, factor exposures, regime sensiti
 
                 # Otherwise continue the conversation with tool results
                 if tool_results:
-                    messages.append({
-                        "role": "assistant",
-                        "content": response.content
-                    })
+                    messages.append(
+                        self.provider.format_assistant_message(
+                            response.content,
+                            response.tool_calls
+                        )
+                    )
                     messages.append({
                         "role": "user",
                         "content": tool_results
@@ -233,23 +203,22 @@ Identify top risk drivers, concentration risks, factor exposures, regime sensiti
             "content": "Provide your analysis now using the var_analysis_result tool."
         })
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4000,
-            system=system_prompt,
+        response = self.provider.create_message(
+            system_prompt=system_prompt,
+            messages=messages,
             tools=[{
                 "name": "var_analysis_result",
                 "description": "Submit the final structured VaR analysis",
                 "input_schema": VAR_ANALYSIS_SCHEMA["schema"]
             }],
-            tool_choice={"type": "tool", "name": "var_analysis_result"},
-            messages=messages
+            max_tokens=4000,
+            tool_choice={"type": "tool", "name": "var_analysis_result"}
         )
 
         # Extract from forced tool call
-        for block in response.content:
-            if block.type == "tool_use" and block.name == "var_analysis_result":
-                return VaRAnalysisResult.from_dict(block.input)
+        for tool_call in response.tool_calls:
+            if tool_call.name == "var_analysis_result":
+                return VaRAnalysisResult.from_dict(tool_call.arguments)
 
         # Fallback if parsing fails
         return self._empty_result("Unable to generate structured analysis")
