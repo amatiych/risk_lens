@@ -38,3 +38,7 @@ pdm.lock
 htmlcov/
 .coverage
 .coverage.*
+
+# Node / Frontend
+node_modules/
+web/dist/
