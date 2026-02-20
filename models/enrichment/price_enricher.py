@@ -5,6 +5,7 @@ portfolio holdings with current market prices, calculating market values
 and portfolio weights.
 """
 
+import os
 from abc import ABC, abstractmethod
 import yfinance as yf
 from models.portfolio import Portfolio,PortfolioEnricher
@@ -70,6 +71,9 @@ class YahooFinancePriceEnricher(PriceEnricher):
         Returns:
             Dictionary mapping ticker symbols to their closing prices.
         """
+        cached = load_cached_prices(tickers)
+        if os.environ.get("USE_CACHED_DATA") == "true" and cached is not None:
+            return cached
         try:
             data = yf.download(tickers, period='1d')
             data.fillna(method='ffill', inplace=True)
@@ -79,8 +83,7 @@ class YahooFinancePriceEnricher(PriceEnricher):
             for ticker in tickers:
                 res[ticker] = close[ticker]
             return res
-        except Exception:
-            cached = load_cached_prices(tickers)
+        except BaseException:
             if cached is not None:
                 return cached
             raise

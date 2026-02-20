@@ -4,6 +4,7 @@ This module provides abstract and concrete implementations for enriching
 portfolios with historical price time series data for risk calculations.
 """
 
+import os
 from abc import ABC, abstractmethod
 import yfinance as yf
 from pandas import DataFrame
@@ -46,12 +47,15 @@ class YahooTimeSeriesEnricher(TimeSeriesEnricher):
             DataFrame with dates as index and tickers as columns.
         """
         tickers = list(portfolio.holdings.index.values)
+        cached = load_cached_timeseries(tickers)
+        if os.environ.get("USE_CACHED_DATA") == "true" and cached is not None:
+            portfolio.time_series = cached
+            return cached
         try:
             data = yf.download(tickers, period='12mo')['Close']
             portfolio.time_series = data
             return data
-        except Exception:
-            cached = load_cached_timeseries(tickers)
+        except BaseException:
             if cached is not None:
                 portfolio.time_series = cached
                 return cached
