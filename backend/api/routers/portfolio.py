@@ -192,11 +192,11 @@ async def analyze_portfolio(portfolio_id: str):
 
         try:
             entry.ai_summary = _get_ai_summary(results.report, get_provider())
-        except Exception:
+        except BaseException:
             entry.ai_summary = None
 
         return _build_analysis_response(portfolio_id, entry)
-    except Exception as e:
+    except BaseException as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Analysis failed: {type(e).__name__}: {str(e)}")
