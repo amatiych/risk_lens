@@ -197,7 +197,9 @@ async def analyze_portfolio(portfolio_id: str):
 
         return _build_analysis_response(portfolio_id, entry)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {type(e).__name__}: {str(e)}")
 
 
 @router.get("/{portfolio_id}", response_model=AnalysisResponse)

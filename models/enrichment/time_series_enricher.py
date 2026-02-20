@@ -10,6 +10,7 @@ from pandas import DataFrame
 
 from models.enrichment.price_enricher import PortfolioEnricher
 from models.portfolio import Portfolio
+from models.enrichment._yf_session import get_yf_session
 
 
 class TimeSeriesEnricher(PortfolioEnricher):
@@ -53,7 +54,7 @@ class YahooTimeSeriesEnricher(TimeSeriesEnricher):
             DataFrame with dates as index and tickers as columns.
         """
         tickers = list(portfolio.holdings.index.values)
-        data = yf.download(tickers, period='12mo')['Close']
+        data = yf.download(tickers, period='12mo', session=get_yf_session())['Close']
         portfolio.time_series = data
         return data
 

@@ -5,10 +5,11 @@ portfolio holdings with current market prices, calculating market values
 and portfolio weights.
 """
 
-from abc import ABC, abstractmethod, abstractclassmethod
+from abc import ABC, abstractmethod
 import yfinance as yf
 from models.portfolio import Portfolio,PortfolioEnricher
 from typing import Dict, List
+from models.enrichment._yf_session import get_yf_session
 
 class PriceEnricher(PortfolioEnricher):
     """Abstract base class for price enrichment services.
@@ -73,7 +74,7 @@ class YahooFinancePriceEnricher(PriceEnricher):
         Returns:
             Dictionary mapping ticker symbols to their closing prices.
         """
-        data = yf.download(tickers, period='1d')
+        data = yf.download(tickers, period='1d', session=get_yf_session())
         data.fillna(method='ffill', inplace=True)
 
         close = data['Close'].sum()
