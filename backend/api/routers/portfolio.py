@@ -3,9 +3,12 @@
 import json
 import uuid
 import io
+import csv
+from pathlib import Path
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from typing import Optional
+from fastapi.responses import FileResponse
+from typing import List, Optional
 
 from backend.api.schemas import (
     PortfolioResponse,
@@ -202,6 +205,35 @@ async def analyze_portfolio(portfolio_id: str):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Analysis failed: {type(e).__name__}: {str(e)}")
+
+
+@router.get("/samples/list")
+async def list_sample_portfolios():
+    holdings_dir = Path(__file__).resolve().parent.parent.parent.parent / "models" / "data" / "holdings"
+    samples = []
+    for f in sorted(holdings_dir.glob("port_*.csv")):
+        tickers = []
+        with open(f) as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                t = row.get("ticker", "").strip()
+                if t:
+                    tickers.append(t)
+        samples.append({
+            "filename": f.name,
+            "tickers": tickers,
+            "num_holdings": len(tickers),
+        })
+    return samples
+
+
+@router.get("/samples/{filename}")
+async def download_sample_portfolio(filename: str):
+    holdings_dir = Path(__file__).resolve().parent.parent.parent.parent / "models" / "data" / "holdings"
+    filepath = holdings_dir / filename
+    if not filepath.exists() or not filename.startswith("port_"):
+        raise HTTPException(status_code=404, detail="Sample not found")
+    return FileResponse(filepath, media_type="text/csv", filename=filename)
 
 
 @router.get("/{portfolio_id}", response_model=AnalysisResponse)

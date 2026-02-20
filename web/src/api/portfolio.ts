@@ -24,3 +24,19 @@ export async function analyzePortfolio(id: string): Promise<AnalysisData> {
 export async function getPortfolio(id: string): Promise<AnalysisData> {
   return apiFetch<AnalysisData>(`/portfolio/${id}`);
 }
+
+export interface SamplePortfolio {
+  filename: string;
+  tickers: string[];
+  num_holdings: number;
+}
+
+export async function listSamplePortfolios(): Promise<SamplePortfolio[]> {
+  return apiFetch<SamplePortfolio[]>("/portfolio/samples/list");
+}
+
+export async function downloadSamplePortfolio(filename: string): Promise<File> {
+  const res = await fetch(`/api/v1/portfolio/samples/${filename}`);
+  const blob = await res.blob();
+  return new File([blob], filename, { type: "text/csv" });
+}
