@@ -10,7 +10,7 @@ from pandas import DataFrame
 
 from models.enrichment.price_enricher import PortfolioEnricher
 from models.portfolio import Portfolio
-from models.enrichment._yf_session import get_yf_session
+from models.enrichment._yf_session import load_cached_timeseries
 
 
 class TimeSeriesEnricher(PortfolioEnricher):
@@ -34,29 +34,25 @@ class TimeSeriesEnricher(PortfolioEnricher):
 
 
 class YahooTimeSeriesEnricher(TimeSeriesEnricher):
-    """Time series enricher using Yahoo Finance API.
-
-    Fetches 12 months of historical closing prices from Yahoo Finance
-    for all holdings in a portfolio.
-    """
+    """Time series enricher using Yahoo Finance API with cache fallback."""
 
     def enrich_portfolio(self, portfolio: Portfolio) -> DataFrame:
-        """Fetch 12 months of historical prices from Yahoo Finance.
-
-        Downloads closing prices for all portfolio holdings and attaches
-        the time series to the portfolio's time_series attribute.
+        """Fetch 12 months of historical prices, falling back to cache.
 
         Args:
-            portfolio: Portfolio instance to enrich. Will have time_series
-                attribute set to DataFrame of historical closing prices.
+            portfolio: Portfolio instance to enrich.
 
         Returns:
             DataFrame with dates as index and tickers as columns.
         """
         tickers = list(portfolio.holdings.index.values)
-        data = yf.download(tickers, period='12mo', session=get_yf_session())['Close']
-        portfolio.time_series = data
-        return data
-
-
-
+        try:
+            data = yf.download(tickers, period='12mo')['Close']
+            portfolio.time_series = data
+            return data
+        except Exception:
+            cached = load_cached_timeseries(tickers)
+            if cached is not None:
+                portfolio.time_series = cached
+                return cached
+            raise

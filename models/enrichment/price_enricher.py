@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 import yfinance as yf
 from models.portfolio import Portfolio,PortfolioEnricher
 from typing import Dict, List
-from models.enrichment._yf_session import get_yf_session
+from models.enrichment._yf_session import load_cached_prices
 
 class PriceEnricher(PortfolioEnricher):
     """Abstract base class for price enrichment services.
@@ -59,14 +59,10 @@ class PriceEnricher(PortfolioEnricher):
 
 
 class YahooFinancePriceEnricher(PriceEnricher):
-    """Price enricher using Yahoo Finance API.
-
-    Fetches real-time stock prices from Yahoo Finance for portfolio
-    holdings enrichment.
-    """
+    """Price enricher using Yahoo Finance API with cache fallback."""
 
     def get_prices(self, tickers: List[str]) -> Dict[str, float]:
-        """Fetch current prices from Yahoo Finance.
+        """Fetch current prices from Yahoo Finance, falling back to cache.
 
         Args:
             tickers: List of stock ticker symbols.
@@ -74,12 +70,17 @@ class YahooFinancePriceEnricher(PriceEnricher):
         Returns:
             Dictionary mapping ticker symbols to their closing prices.
         """
-        data = yf.download(tickers, period='1d', session=get_yf_session())
-        data.fillna(method='ffill', inplace=True)
+        try:
+            data = yf.download(tickers, period='1d')
+            data.fillna(method='ffill', inplace=True)
 
-        close = data['Close'].sum()
-        res = {}
-        for ticker in tickers:
-            res[ticker] = close[ticker]
-        return res
-
+            close = data['Close'].sum()
+            res = {}
+            for ticker in tickers:
+                res[ticker] = close[ticker]
+            return res
+        except Exception:
+            cached = load_cached_prices(tickers)
+            if cached is not None:
+                return cached
+            raise
