@@ -25,4 +25,4 @@ COPY . .
 ENV PYTHONPATH=.
 
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn backend.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["python", "-c", "import os; port = os.environ.get('PORT', '8000'); os.execvp('uvicorn', ['uvicorn', 'backend.api.main:app', '--host', '0.0.0.0', '--port', port])"]
