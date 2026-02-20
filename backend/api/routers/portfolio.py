@@ -192,8 +192,10 @@ async def analyze_portfolio(portfolio_id: str):
 
         try:
             entry.ai_summary = _get_ai_summary(results.report, get_provider())
-        except BaseException:
-            entry.ai_summary = None
+        except BaseException as e:
+            import traceback
+            traceback.print_exc()
+            entry.ai_summary = f"AI summary unavailable: {type(e).__name__}: {e}"
 
         return _build_analysis_response(portfolio_id, entry)
     except BaseException as e:

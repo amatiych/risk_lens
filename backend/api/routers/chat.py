@@ -106,9 +106,14 @@ async def chat_stream(portfolio_id: str, request: ChatRequest):
         full_messages = request.history + [{"role": "user", "content": request.message}]
         full_response = ""
 
-        for chunk in _stream_chat(full_messages, entry.report, provider_name):
-            full_response += chunk
-            yield _sse_event({"type": "text", "content": chunk})
+        try:
+            for chunk in _stream_chat(full_messages, entry.report, provider_name):
+                full_response += chunk
+                yield _sse_event({"type": "text", "content": chunk})
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            yield _sse_event({"type": "text", "content": f"\n\nError: {type(e).__name__}: {str(e)}"})
 
         output_guards = OutputGuardrails()
         source_data = {
